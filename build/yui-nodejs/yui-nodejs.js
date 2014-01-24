@@ -254,7 +254,7 @@ if (docEl && docClass.indexOf(DOC_LABEL) == -1) {
 }
 
 if (VERSION.indexOf('@') > -1) {
-    VERSION = '3.5.0'; // dev time hack for cdn test
+    VERSION = '3.14.1'; // dev time hack for cdn test
 }
 
 proto = {
@@ -4737,7 +4737,7 @@ YUI.add('loader-base', function (Y, NAME) {
         BUILD = '/build/',
         ROOT = VERSION + '/',
         CDN_BASE = Y.Env.base,
-        GALLERY_VERSION = 'gallery-2013.12.12-21-06',
+        GALLERY_VERSION = 'gallery-2014.01.22-18-38',
         TNT = '2in3',
         TNT_VERSION = '4',
         YUI2_VERSION = '2.9.0',
@@ -4947,6 +4947,20 @@ Y.Loader = function(o) {
 
     //Catch no config passed.
     o = o || {};
+
+    // Hook to patch loader during instantiation
+    (function () {
+        var patches = o.patches,
+            len,
+            i;
+
+        if (!self._patched && patches) {
+            for (i = 0, len = patches.length; i < len; i += 1) {
+                patches[i](self, Y);
+            }
+        }
+        self._patched = true;
+    }());
 
     modulekey = META.md5;
 
