@@ -66,6 +66,16 @@ available.
             },
             gconf = (typeof YUI_config !== 'undefined') && YUI_config;
 
+        // Early hook to patch YUI instance
+        if (!Y._instancePatched && gconf && gconf.instancePatches) {
+            (function (patches, len, i) {
+                Y._instancePatched = true;
+                for (i = 0, len = patches.length; i < len; i += 1) {
+                    patches[i](Y);
+                }
+            }(gconf.instancePatches));
+        }
+
         if (!(instanceOf(Y, YUI))) {
             Y = new YUI();
         } else {
@@ -6062,6 +6072,16 @@ Y.Loader = function(o) {
 
     //Catch no config passed.
     o = o || {};
+
+    // Hook to patch loader
+    if (!Y._patched && Y.config.patches) {
+        (function (patches, len, i) {
+            Y._patched = true;
+            for (i = 0, len = patches.length; i < len; i += 1) {
+                patches[i](Y, self);
+            }
+        }(Y.config.patches));
+    }
 
     modulekey = META.md5;
 
