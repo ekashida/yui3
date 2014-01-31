@@ -628,7 +628,7 @@ with any configuration info required for the module.
             },
             //Instance hash so we don't apply it to the same instance twice
             applied = {},
-            loader, inst,
+            loader, inst, modInfo,
             i, versions = env.versions;
 
         env.mods[name] = mod;
@@ -642,7 +642,8 @@ with any configuration info required for the module.
                     applied[inst.id] = true;
                     loader = inst.Env._loader;
                     if (loader) {
-                        if (!loader.moduleInfo[name] || loader.moduleInfo[name].temp) {
+                        modInfo = loader._getModuleInfo(name);
+                        if (!modInfo || modInfo.temp) {
                             loader.addModule(details, name);
                         }
                     }
@@ -674,7 +675,7 @@ with any configuration info required for the module.
             exported = Y.Env._exported,
             len = r.length, loader, def, go,
             c = [],
-            modArgs, esCompat, reqlen,
+            modArgs, esCompat, reqlen, modInfo,
             __exports__, __imports__;
 
         //Check for conditional modules (in a second+ instance) and add their requirements
@@ -708,8 +709,9 @@ with any configuration info required for the module.
                     continue;
                 }
                 if (!mod) {
-                    if (loader && loader.moduleInfo[name]) {
-                        mod = loader.moduleInfo[name];
+                    modInfo = loader && loader._getModuleInfo(name);
+                    if (modInfo) {
+                        mod = modInfo;
                         moot = true;
                     }
 
@@ -742,8 +744,9 @@ with any configuration info required for the module.
                     if (loader && cache && cache[name] && cache[name].temp) {
                         loader.getRequires(cache[name]);
                         req = [];
-                        for (j in loader.moduleInfo[name].expanded_map) {
-                            if (loader.moduleInfo[name].expanded_map.hasOwnProperty(j)) {
+                        modInfo = loader._getModuleInfo(name);
+                        for (j in modInfo.expanded_map) {
+                            if (modInfo.expanded_map.hasOwnProperty(j)) {
                                 req.push(j);
                             }
                         }
@@ -6116,7 +6119,7 @@ YUI.add('loader-base', function (Y, NAME) {
         BUILD = '/build/',
         ROOT = VERSION + '/',
         CDN_BASE = Y.Env.base,
-        GALLERY_VERSION = 'gallery-2014.01.22-18-38',
+        GALLERY_VERSION = 'gallery-2014.01.28-00-45',
         TNT = '2in3',
         TNT_VERSION = '4',
         YUI2_VERSION = '2.9.0',
@@ -6627,7 +6630,7 @@ Y.Loader = function(o) {
     self.config = o;
     self._internal = true;
 
-    self._populateCache();
+    // self._populateCache();
 
     /**
      * Set when beginning to compute the dependency tree.
@@ -6734,6 +6737,43 @@ Y.Loader = function(o) {
 };
 
 Y.Loader.prototype = {
+    /**
+    * Gets the module info from the local moduleInfo hash, or from the
+    * default metadata and populate the local moduleInfo hash.
+    * @method _getModuleInfo
+    * @param {string} name of the module
+    * @private
+    */
+    _getModuleInfo: function(name) {
+
+        if (this.moduleInfo[name]) {
+            return this.moduleInfo[name];
+        }
+
+        var rawMetaModules = META.modules,
+            globalConditions = GLOBAL_ENV._conditions,
+            globalRenderedMods = GLOBAL_ENV._renderedMods,
+            v;
+
+        if (globalRenderedMods && globalRenderedMods.hasOwnProperty(name) && !this.ignoreRegistered) {
+            this.moduleInfo[name] = Y.merge(globalRenderedMods[name]);
+            if (globalConditions.hasOwnProperty(name)) {
+                this.conditions[name] = Y.merge(globalConditions[name]);
+            }
+        } else {
+            if (rawMetaModules.hasOwnProperty(name)) {
+                v = this.addModule(rawMetaModules[name], name);
+                // Inspect the page for the CSS module and mark it as loaded.
+                if (v && v.type && v.type === CSS) {
+                    if (this.isCSSLoaded(v.name)) {
+                        Y.log('Found CSS module on page: ' + v.name, 'info', 'loader');
+                        this.loaded[v.name] = true;
+                    }
+                }
+            }
+        }
+        return this.moduleInfo[name];
+    },
     /**
     * Checks the cache for modules and conditions, if they do not exist
     * process the default metadata and populate the local moduleInfo hash.
@@ -6849,23 +6889,11 @@ Y.Loader.prototype = {
     _inspectPage: function() {
         var self = this, v, m, req, mr, i;
 
-        //Inspect the page for CSS only modules and mark them as loaded.
-        for (i in self.moduleInfo) {
-            if (self.moduleInfo.hasOwnProperty(i)) {
-                v = self.moduleInfo[i];
-                if (v.type && v.type === CSS) {
-                    if (self.isCSSLoaded(v.name)) {
-                        Y.log('Found CSS module on page: ' + v.name, 'info', 'loader');
-                        self.loaded[i] = true;
-                    }
-                }
-            }
-        }
         for (i in ON_PAGE) {
             if (ON_PAGE.hasOwnProperty(i)) {
                 v = ON_PAGE[i];
                 if (v.details) {
-                    m = self.moduleInfo[v.name];
+                    m = self._getModuleInfo(v.name);
                     req = v.details.requires;
                     mr = m && m.requires;
 
@@ -6893,8 +6921,8 @@ Y.Loader.prototype = {
 
         var i, rm, after_map, s,
             info = this.moduleInfo,
-            m = info[mod1],
-            other = info[mod2];
+            m = this._getModuleInfo(mod1),
+            other = this._getModuleInfo(mod2);
 
         if (!m || !other) {
             return false;
@@ -6956,7 +6984,7 @@ Y.Loader.prototype = {
     */
     _config: function(o) {
         var i, j, val, a, f, group, groupName, self = this,
-            mods = [], mod;
+            mods = [], mod, modInfo;
         // apply config values
         if (o) {
             for (i in o) {
@@ -7036,8 +7064,9 @@ Y.Loader.prototype = {
             if (self.filterName === 'COVERAGE' && L.isArray(self.coverage) && self.coverage.length) {
                 for (i = 0; i < self.coverage.length; i++) {
                     mod = self.coverage[i];
-                    if (self.moduleInfo[mod] && self.moduleInfo[mod].use) {
-                        mods = [].concat(mods, self.moduleInfo[mod].use);
+                    modInfo = self._getModuleInfo(mod);
+                    if (modInfo && modInfo.use) {
+                        mods = [].concat(mods, modInfo.use);
                     } else {
                         mods.push(mod);
                     }
@@ -7082,16 +7111,15 @@ Y.Loader.prototype = {
      * @private
      */
     _addSkin: function(skin, mod, parent) {
-        var mdef, pkg, name, nmod,
-            info = this.moduleInfo,
+        var pkg, name, nmod,
             sinf = this.skin,
-            ext = info[mod] && info[mod].ext;
+            mdef = mod && this._getModuleInfo(mod),
+            ext = mdef && mdef.ext;
 
         // Add a module definition for the module-specific skin css
         if (mod) {
             name = this.formatSkin(skin, mod);
-            if (!info[name]) {
-                mdef = info[mod];
+            if (!this._getModuleInfo(name)) {
                 pkg = mdef.pkg || mod;
                 nmod = {
                     skin: true,
@@ -7111,7 +7139,7 @@ Y.Loader.prototype = {
                 }
                 this.addModule(nmod, name);
 
-                Y.log('Adding skin (' + name + '), ' + parent + ', ' + pkg + ', ' + info[name].path, 'info', 'loader');
+                Y.log('Adding skin (' + name + '), ' + parent + ', ' + pkg + ', ' + nmod.path, 'info', 'loader');
             }
         }
 
@@ -7233,19 +7261,20 @@ Y.Loader.prototype = {
         var subs, i, l, t, sup, s, smod, plugins, plug,
             j, langs, packName, supName, flatSup, flatLang, lang, ret,
             overrides, skinname, when, g, p,
+            modInfo = this.moduleInfo[name],
             conditions = this.conditions, trigger;
 
         //Only merge this data if the temp flag is set
         //from an earlier pass from a pattern or else
         //an override module (YUI_config) can not be used to
         //replace a default module.
-        if (this.moduleInfo[name] && this.moduleInfo[name].temp) {
+        if (modInfo && modInfo.temp) {
             //This catches temp modules loaded via a pattern
             // The module will be added twice, once from the pattern and
             // Once from the actual add call, this ensures that properties
             // that were added to the module the first time around (group: gallery)
             // are also added the second time around too.
-            o = Y.merge(this.moduleInfo[name], o);
+            o = Y.merge(modInfo, o);
         }
 
         o.name = name;
@@ -7320,7 +7349,7 @@ Y.Loader.prototype = {
             for (j = 0; j < langs.length; j++) {
                 lang = langs[j];
                 packName = this.getLangPackName(lang, name);
-                smod = this.moduleInfo[packName];
+                smod = this._getModuleInfo(packName);
                 if (!smod) {
                     smod = this._addLangPack(lang, o, packName);
                 }
@@ -7372,7 +7401,7 @@ Y.Loader.prototype = {
                             lang = langs[j];
                             packName = this.getLangPackName(lang, name);
                             supName = this.getLangPackName(lang, i);
-                            smod = this.moduleInfo[packName];
+                            smod = this._getModuleInfo(packName);
 
                             if (!smod) {
                                 smod = this._addLangPack(lang, o, packName);
@@ -7399,7 +7428,7 @@ Y.Loader.prototype = {
                             packName = this.getLangPackName(ROOT_LANG, name);
                             supName = this.getLangPackName(ROOT_LANG, i);
 
-                            smod = this.moduleInfo[packName];
+                            smod = this._getModuleInfo(packName);
 
                             if (!smod) {
                                 smod = this._addLangPack(lang, o, packName);
@@ -7618,7 +7647,6 @@ Y.Loader.prototype = {
             r, old_mod,
             o, skinmod, skindef, skinpar, skinname,
             intl = mod.lang || mod.intl,
-            info = this.moduleInfo,
             ftests = Y.Features && Y.Features.tests.load,
             hash, reparse;
 
@@ -7712,7 +7740,7 @@ Y.Loader.prototype = {
                 if (!hash[o[i]]) {
                     d.push(o[i]);
                     hash[o[i]] = true;
-                    m = info[o[i]];
+                    m = this._getModuleInfo(o[i]);
                     if (m) {
                         add = this.getRequires(m);
                         intl = intl || (m.expanded_map &&
@@ -7935,7 +7963,7 @@ Y.Loader.prototype = {
     _addLangPack: function(lang, m, packName) {
         var name = m.name,
             packPath, conf,
-            existing = this.moduleInfo[packName];
+            existing = this._getModuleInfo(packName);
 
         if (!existing) {
 
@@ -8114,7 +8142,7 @@ Y.Loader.prototype = {
         }
 
         var p, found, pname,
-            m = this.moduleInfo[mname],
+            m = this._getModuleInfo(mname),
             patterns = this.patterns;
 
         // check the patterns library to see if we should automatically add
@@ -8663,7 +8691,7 @@ Y.log('Undefined module: ' + mname + ', matched a pattern: ' +
         var f = this.filter,
             hasFilter = name && (name in this.filters),
             modFilter = hasFilter && this.filters[name],
-            groupName = group || (this.moduleInfo[name] ? this.moduleInfo[name].group : null);
+            groupName = group || (this._getModuleInfo(name) || {}).group || null;
 
         if (groupName && this.groups[groupName] && this.groups[groupName].filter) {
             modFilter = this.groups[groupName].filter;
