@@ -156,7 +156,7 @@ available.
 (function() {
 
     var proto, prop,
-        VERSION = '@VERSION@',
+        VERSION = '3.12.0',
         PERIOD = '.',
         BASE = 'http://yui.yahooapis.com/',
         /*
